@@ -1,0 +1,312 @@
+## Load required libraries and datasets
+
+#### Load required libraries
+library(data.table)
+library(ggplot2)
+library(ggmosaic)
+library(readr)
+library(stringr)
+library(stringi)
+library(tidyverse)
+library(dplyr)
+
+#### Point the filePath to where you have downloaded the datasets to and
+customerData <- as.data.table(read.csv("C:/Users/nikhi/Desktop/Quantium-task/QVI_purchase_behaviour.csv"))
+transactionData <- as.data.table(readxl::read_xlsx("C:/Users/nikhi/Desktop/Quantium-task/QVI_transaction_data.xlsx"))
+
+
+
+## Exploratory data analysis
+ 
+#### Examine transaction data
+str(transactionData)
+
+head(transactionData)
+
+
+ 
+#### Convert DATE column to a date format
+transactionData$DATE <- as.Date(transactionData$DATE, origin = "1899-12-30")
+summary(transactionData)
+
+
+ 
+#### Examine PROD_NAME
+head(transactionData$PROD_NAME)
+transactionData[, .N, PROD_NAME]
+
+
+#### Examine the words in PROD_NAME to see if there are any incorrect entries
+#### such as products that are not chips
+productWords <- data.table(unlist(strsplit(unique(transactionData[, PROD_NAME]), "
+                                           ")))
+setnames(productWords, 'words')
+
+
+
+
+#### Removing special characters
+productWords$words <- str_replace_all(productWords$words,"[[:punct:]]"," ")
+
+
+#### Removing digits
+productWords$words <- str_replace_all(productWords$words,"[0-9]"," ")
+productWords$words <- str_replace_all(productWords$words,"[gG]"," ")
+
+#### Let's look at the most common words by counting the number of times a word appears and
+wordsSep <- strsplit(productWords$words," ")
+words.freq<-table(unlist(wordsSep))
+
+#### sorting them by this frequency in order of highest to lowest frequency
+words.freq <-  as.data.frame(words.freq)
+words.freq <- words.freq[order(words.freq$Freq, decreasing = T),]
+
+words.freq
+
+
+
+
+
+
+####There are salsa products in the dataset but we are only interested in the chips category, so let's remove these.
+
+#### Remove salsa products
+
+transactionData[, SALSA := grepl("salsa", tolower(PROD_NAME))]
+transactionData <- transactionData[SALSA == FALSE, ][, SALSA := NULL]
+
+
+
+
+#### Summarise the data to check for nulls and possible outliers
+summary(transactionData)
+
+
+
+
+
+
+## Filter the outlier for which the product quantity is 200
+filter(transactionData, PROD_QTY == 200)
+
+#### Let's see if the customer has had other transactions
+## Finding the customer who made the purchase 
+filter(transactionData, LYLTY_CARD_NBR == 226000)
+
+#### Filter out the customer based o? the loyalty card number
+transactionData <- filter(transactionData, LYLTY_CARD_NBR != 226000)
+
+#### Re-examine transaction data
+summary(transactionData)
+
+
+
+
+
+#### Count the number of transactions by date
+transactionData[, .N, by = DATE]
+
+
+ 
+#### Create a sequence of dates and join this with the count of transactions by date
+count_By_Date <- data.table(seq(as.Date("2018/07/01"), as.Date("2019/06/30"), by = "day"))
+setnames(count_By_Date, "DATE")
+transactions_by_day <- merge(count_By_Date, transactionData[, .N, by = DATE], all.x = TRUE) 
+
+#### Setting plot themes to format graphs
+theme_set(theme_bw())
+theme_update(plot.title = element_text(hjust = 0.5))
+
+#### Plot transactions over time
+ggplot(transactions_by_day, aes(x = DATE, y = N)) +
+  geom_line() +
+  labs(x = "Day", y = "Number of transactions", title = "Transactions over time") +
+  scale_x_date(breaks = "1 month") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+
+ 
+#### Filter to December and look at individual days
+
+ggplot(transactions_by_day[month(DATE) == 12, ], aes(x = DATE, y = N)) +
+  geom_line() +
+  labs(x = "Day", y = "Number of transactions", title = "Transactions over time") +
+  scale_x_date(breaks = "1 day") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+ 
+#### Pack size
+#### We can work this out by taking the digits that are in PROD_NAME
+transactionData[, PACK_SIZE := parse_number(PROD_NAME)]
+#### Always check your output
+#### Let's check if the pack sizes look sensible
+transactionData[, .N, PACK_SIZE][order(PACK_SIZE)]
+
+
+head(transactionData)
+
+
+ 
+#### Let's plot a histogram of PACK_SIZE since we know that it is a categorical
+hist(transactionData[, PACK_SIZE])
+
+
+
+#### Brands
+transactionData[, BRAND := toupper(substr(PROD_NAME, 1, regexpr(pattern = ' ', PROD_NAME) - 1))]
+#### Checking brands
+transactionData[, .N, by = BRAND][order(-N)]
+
+#### Clean brand names
+transactionData[BRAND == "RED", BRAND := "RRD"]
+transactionData[BRAND == "SNBTS", BRAND := "SUNBITES"]
+transactionData[BRAND == "INFZNS", BRAND := "INFUZIONS"]
+transactionData[BRAND == "WW", BRAND := "WOOLWORTHS"]
+transactionData[BRAND == "SMITH", BRAND := "SMITHS"]
+transactionData[BRAND == "NCC", BRAND := "NATURAL"]
+transactionData[BRAND == "DORITO", BRAND := "DORITOS"]
+transactionData[BRAND == "GRAIN", BRAND := "GRNWVES"]
+transactionData[BRAND == "WOOLWORTHS", BRAND := "Woolworths"]
+
+#### Check again
+transactionData[, .N, by = BRAND][order(BRAND)]
+
+#### Examining customer data
+str(customerData)
+
+
+ 
+#### Summarizing customer data
+summary(customerData)
+
+
+ 
+#### Examining the values of lifestage
+customerData[, .N, by = LIFESTAGE][order(-N)]
+
+
+ 
+#### Examining the values of PREMIUM_CUSTOMER
+customerData[, .N, by = PREMIUM_CUSTOMER][order(-N)]
+
+
+
+
+
+ 
+#### Merge transaction data to customer data
+data <- merge(transactionData, customerData, all.x = TRUE)
+
+apply(data, 2, function(x) any(is.na(x)))
+
+
+data[is.null(LIFESTAGE), .N]
+data[is.null(PREMIUM_CUSTOMER), .N]
+
+
+
+
+## Save the data 
+
+fwrite(data, paste0("C:/Users/nikhi/Desktop/Quantium-task/","QVI_data.csv"))
+
+
+
+
+
+#### Total sales by LIFESTAGE and PREMIUM_CUSTOMER
+sales <- data[, .(SALES = sum(TOT_SALES)), .(LIFESTAGE, PREMIUM_CUSTOMER)]
+
+#### Create plot
+p <- ggplot(data = sales) +
+  geom_mosaic(aes(weight = SALES, x = product(PREMIUM_CUSTOMER, LIFESTAGE), fill = PREMIUM_CUSTOMER)) +
+  labs(x = "Lifestage", y = "Premium customer flag", title = "Proportion of sales") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+#### Plot and label with proportion of sales
+p + geom_text(data = ggplot_build(p)$data[[1]], aes(x = (xmin + xmax)/2 , y =
+                                                      (ymin + ymax)/2, label = as.character(paste(round(.wt/sum(.wt),3)*100,
+                                                                                                  '%'))))
+
+#### Number of customers by LIFESTAGE and PREMIUM_CUSTOMER
+customers <- data[, .(CUSTOMERS = uniqueN(LYLTY_CARD_NBR)), .(LIFESTAGE,
+                                                              PREMIUM_CUSTOMER)][order(-CUSTOMERS)]
+
+#### Create plot
+p <- ggplot(data = customers) +
+  geom_mosaic(aes(weight = CUSTOMERS, x = product(PREMIUM_CUSTOMER,
+                                                  LIFESTAGE), fill = PREMIUM_CUSTOMER)) +
+  labs(x = "Lifestage", y = "Premium customer flag", title = "Proportion of customers") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+#### Plot and label with proportion of customers
+p + geom_text(data = ggplot_build(p)$data[[1]], aes(x = (xmin + xmax)/2 , y =
+                                                      (ymin + ymax)/2, label = as.character(paste(round(.wt/sum(.wt),3)*100,
+                                                                                                  '%'))))
+
+
+
+#### Average number of units per customer by LIFESTAGE and PREMIUM_CUSTOMER
+avg_units <- data[, .(AVG = sum(PROD_QTY)/uniqueN(LYLTY_CARD_NBR)),
+                  .(LIFESTAGE, PREMIUM_CUSTOMER)][order(-AVG)]
+
+#### Create plot
+ggplot(data = avg_units, aes(weight = AVG, x = LIFESTAGE, fill = PREMIUM_CUSTOMER)) +
+  geom_bar(position = position_dodge()) +
+  labs(x = "Lifestage", y = "Avg units per transaction", title = "Units per customer") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+#### Average price per unit by LIFESTAGE and PREMIUM_CUSTOMER
+avg_price <- data[, .(AVG = sum(TOT_SALES)/sum(PROD_QTY)),
+                  .(LIFESTAGE, PREMIUM_CUSTOMER)][order(-AVG)]
+
+#### Create plot
+ggplot(data = avg_price, aes(weight = AVG, x = LIFESTAGE, fill = PREMIUM_CUSTOMER)) +
+  geom_bar(position = position_dodge()) +
+  labs(x = "Lifestage", y = "Avg price per unit", title = "Price per unit") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+
+#### Perform an independent t‐test between mainstream vs premium and budget midage and
+#### young singles and couples
+
+pricePerUnit <- data[, price := TOT_SALES/PROD_QTY]
+t.test(data[LIFESTAGE %in% c("YOUNG SINGLES/COUPLES", "MIDAGE SINGLES/COUPLES")
+            & PREMIUM_CUSTOMER == "Mainstream", price]
+       ,data[LIFESTAGE %in% c("YOUNG SINGLES/COUPLES", "MIDAGE SINGLES/COUPLES")
+             & PREMIUM_CUSTOMER != "Mainstream", price], alternative = "greater")
+
+
+ 
+#### Deep dive into Mainstream, young singles/couples
+
+segment1 <- data[LIFESTAGE == "YOUNG SINGLES/COUPLES" & PREMIUM_CUSTOMER == "Mainstream",]
+other <- data[!(LIFESTAGE == "YOUNG SINGLES/COUPLES" & PREMIUM_CUSTOMER == "Mainstream"),]
+
+
+#### Brand affinity compared to the rest of the population
+quantity_segment1 <- segment1[, sum(PROD_QTY)]
+
+quantity_other <- other[, sum(PROD_QTY)]
+quantity_segment1_by_brand <- segment1[, .(targetSegment = sum(PROD_QTY)/quantity_segment1), by = BRAND]
+quantity_other_by_brand <- other[, .(other = sum(PROD_QTY)/quantity_other), by = BRAND]
+brand_proportions <- merge(quantity_segment1_by_brand, quantity_other_by_brand)[, affinityToBrand :=
+                                                                                  targetSegment/other]
+brand_proportions[order(-affinityToBrand)]
+
+
+ 
+#### Preferred pack size compared to the rest of the population
+quantity_segment1_by_pack <- segment1[, .(targetSegment = sum(PROD_QTY)/quantity_segment1), by = PACK_SIZE]
+quantity_other_by_pack <- other[, .(other = sum(PROD_QTY)/quantity_other), by = PACK_SIZE]
+pack_proportions <- merge(quantity_segment1_by_pack, quantity_other_by_pack)[, affinityToPack := targetSegment/other]
+pack_proportions[order(-affinityToPack)]
+
+
+
+data[PACK_SIZE == 270, unique(PROD_NAME)]
+
